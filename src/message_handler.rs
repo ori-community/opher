@@ -162,7 +162,7 @@ impl EventHandler for MessageHandler {
             return;
         }
 
-        let Some(_) = message.guild_id else {
+        if message.guild_id.is_none() {
             // If the message is not in a server, ignore it
             return;
         };
