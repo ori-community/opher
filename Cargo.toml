@@ -1,0 +1,13 @@
+[package]
+name = "opher"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+serenity = "0.12"
+cached = "0.58"
+sha2 = "0.10.9"
+chrono = "0.4.44"
