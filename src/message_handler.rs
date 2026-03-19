@@ -1,6 +1,9 @@
 use cached::{Cached, TimedSizedCache};
 use chrono::TimeDelta;
-use serenity::all::{ActivityData, Context, EditMember, EventHandler, Guild, GuildId, Message, Ready, Timestamp, User, UserId};
+use serenity::all::{
+    ActivityData, Context, CreateMessage, EditMember, EventHandler, Guild, GuildId, Message, Ready,
+    Timestamp, User, UserId,
+};
 use serenity::async_trait;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -78,6 +81,28 @@ impl MessageHandler {
                 "Timing out member {} in guild {} ({})",
                 user_id, guild_id, guild_info.name
             );
+
+            if let Ok(channels) = guild_id.channels(ctx).await {
+                if let Some((channel_id, _)) = channels
+                    .iter()
+                    .find(|(_, channel)| channel.name == "opher-automod")
+                {
+                    if let Err(error) = channel_id
+                        .send_message(
+                            ctx,
+                            CreateMessage::new()
+                                .content(format!("Auto-Timeout triggered: <@{user_id}>")),
+                        )
+                        .await
+                    {
+                        error!("Error sending notification message: {}", error);
+                    }
+                } else {
+                    warn!("Failed to find opher-automod channel in guild {}", guild_id);
+                }
+            } else {
+                error!("Failed to get channels for guild {}", guild_id);
+            }
 
             if let Err(error) = guild_id
                 .edit_member(
