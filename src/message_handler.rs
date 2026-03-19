@@ -30,9 +30,9 @@ pub struct MessageHandler {
     bursts: Arc<Mutex<TimedSizedCache<MessageHash, Arc<Mutex<MessageBurst>>>>>,
 }
 
-const AUTOBAN_MIN_MESSAGE_LENGTH: usize = 0;
+const AUTOBAN_MIN_MESSAGE_LENGTH: usize = 16;
 const AUTOBAN_BURST: usize = 3;
-const AUTOBAN_DURATION: TimeDelta = TimeDelta::seconds(30);
+const AUTOBAN_DURATION: TimeDelta = TimeDelta::days(2);
 
 impl MessageHandler {
     pub fn new() -> Self {
