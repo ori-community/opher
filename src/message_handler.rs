@@ -178,6 +178,10 @@ impl EventHandler for MessageHandler {
             &burst.author.name, &burst.author.id
         );
 
+        if let Some(message) = burst.messages.first() {
+            warn!("Message content: << {} >>", message.content);
+        }
+
         ctx.set_activity(Some(ActivityData::custom("Deleting spam messages…")));
 
         self.timeout_member_in_all_guilds(&ctx, &message.author.id)
