@@ -54,7 +54,11 @@ impl MessageHandler {
         // Compute message hash
         let mut hasher = Sha256::new();
         hasher.update(message.author.id.get().to_le_bytes());
-        hasher.update(message.content.clone());
+        hasher.update(&message.content);
+        hasher.update(message.attachments.len().to_le_bytes());
+        for attachment in &message.attachments {
+            hasher.update(&attachment.size.to_le_bytes());
+        }
         let message_hash: MessageHash = hasher.finalize().as_array::<32>().unwrap().clone();
 
         let mut cache = self.bursts.lock().await;
@@ -179,7 +183,16 @@ impl EventHandler for MessageHandler {
         );
 
         if let Some(message) = burst.messages.first() {
-            warn!("Message content: << {} >>", message.content);
+            warn!(
+                "Message content: << {} >> ({} attachment{})",
+                message.content,
+                message.attachments.len(),
+                if message.attachments.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            );
         }
 
         ctx.set_activity(Some(ActivityData::custom("Deleting spam messages…")));
