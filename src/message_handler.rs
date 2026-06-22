@@ -1,4 +1,4 @@
-use cached::{Cached, TimedSizedCache};
+use cached::{Cached, LruTtlCache};
 use chrono::TimeDelta;
 use serenity::all::{
     ActivityData, Context, CreateMessage, EditMember, EventHandler, Guild, GuildId, Message, Ready,
@@ -16,8 +16,14 @@ type MessageHash = [u8; 32];
 
 #[derive(Clone)]
 pub struct MessageBurst {
+    /// The author of messages in this message burst
     author: User,
+    /// The messages sent. These all have the same hash.
     messages: Vec<Message>,
+    /// Whether this message burst is considered spam. If true, messages
+    /// with the same hash should be deleted immediately without waiting for
+    /// any threshold to be crossed
+    is_spam: bool,
 }
 
 #[derive(Clone)]
@@ -27,11 +33,14 @@ struct GuildInfo {
 
 pub struct MessageHandler {
     guild_ids: Arc<Mutex<HashMap<GuildId, GuildInfo>>>,
-    bursts: Arc<Mutex<TimedSizedCache<MessageHash, Arc<Mutex<MessageBurst>>>>>,
+    bursts: Arc<Mutex<LruTtlCache<MessageHash, Arc<Mutex<MessageBurst>>>>>,
 }
 
+/// Minimum message length to consider running through the spam detection heuristic
 const AUTOBAN_MIN_MESSAGE_LENGTH: usize = 16;
-const AUTOBAN_BURST: usize = 3;
+/// How many consecutive messages need to be sent to consider them spam
+const AUTOBAN_SPAM_MESSAGE_THRESHOLD: usize = 3;
+/// How long users should be timed out in case of spam
 const AUTOBAN_DURATION: TimeDelta = TimeDelta::days(2);
 
 impl MessageHandler {
@@ -39,11 +48,12 @@ impl MessageHandler {
         MessageHandler {
             guild_ids: Arc::new(Mutex::new(HashMap::new())),
             bursts: Arc::new(Mutex::new(
-                TimedSizedCache::with_size_and_lifespan_and_refresh(
-                    1024,
-                    Duration::from_mins(3),
-                    true,
-                ),
+                LruTtlCache::builder()
+                    .max_size(1024)
+                    .ttl(Duration::from_mins(3))
+                    .refresh_on_hit(true)
+                    .build()
+                    .unwrap(),
             )),
         }
     }
@@ -66,13 +76,14 @@ impl MessageHandler {
             Arc::new(Mutex::new(MessageBurst {
                 author: message.author.clone(),
                 messages: vec![],
+                is_spam: false,
             }))
         });
         let mut cache_entry = cache_entry_arc.lock().await;
 
         cache_entry.messages.push(message.clone());
 
-        if cache_entry.messages.len() >= AUTOBAN_BURST {
+        if cache_entry.is_spam || cache_entry.messages.len() >= AUTOBAN_SPAM_MESSAGE_THRESHOLD {
             Some(cache_entry_arc.clone())
         } else {
             None
@@ -175,30 +186,40 @@ impl EventHandler for MessageHandler {
             // No messages need to be deleted
             return;
         };
-        let burst = burst_arc.lock().await;
-
-        warn!(
-            "Burst detected: {} ({})",
-            &burst.author.name, &burst.author.id
-        );
-
-        if let Some(message) = burst.messages.first() {
-            warn!(
-                "Message content: << {} >> ({} attachment{})",
-                message.content,
-                message.attachments.len(),
-                if message.attachments.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            );
-        }
+        let mut burst = burst_arc.lock().await;
 
         ctx.set_activity(Some(ActivityData::custom("Deleting spam messages…")));
 
-        self.timeout_member_in_all_guilds(&ctx, &message.author.id)
-            .await;
+        if !burst.is_spam {
+            burst.is_spam = true;
+
+            warn!(
+                "Burst detected: {} ({})",
+                &burst.author.name, &burst.author.id
+            );
+
+            if let Some(message) = burst.messages.first() {
+                warn!(
+                    "Message content: << {} >> ({} attachment{})",
+                    message.content,
+                    message.attachments.len(),
+                    if message.attachments.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                );
+            }
+
+            self.timeout_member_in_all_guilds(&ctx, &message.author.id)
+                .await;
+        } else {
+            warn!(
+                "Incoming message from an already triggered burst, will delete immediately: {} ({})",
+                &burst.author.name, &burst.author.id
+            );
+        }
+
         Self::delete_all_messages(&ctx, burst).await;
 
         ctx.set_activity(None);
