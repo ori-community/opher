@@ -169,9 +169,13 @@ impl EventHandler for MessageHandler {
             return;
         }
 
-        // Ignore short messages with no attachments and no embeds
+        // Ignore short messages with no attachments, no embeds or poll results
         if message.attachments.is_empty()
-            && message.embeds.is_empty()
+            && message.embeds.iter().all(|e| {
+                e.kind
+                    .as_ref()
+                    .is_some_and(|kind| matches!(kind.as_str(), "poll_result"))
+            })
             && message.content.len() <= AUTOBAN_MIN_MESSAGE_LENGTH
         {
             return;
@@ -209,6 +213,27 @@ impl EventHandler for MessageHandler {
                         "s"
                     }
                 );
+
+                let empty_field_string = "-".to_string();
+                for (index, embed) in message.embeds.iter().enumerate() {
+                    warn!("Embed {index}:");
+                    warn!(
+                        "  Kind:      {}",
+                        embed.kind.as_ref().unwrap_or(&empty_field_string)
+                    );
+                    warn!(
+                        "  URL:       {}",
+                        embed.url.as_ref().unwrap_or(&empty_field_string)
+                    );
+                    warn!(
+                        "  Image URL: {}",
+                        embed
+                            .image
+                            .as_ref()
+                            .map(|i| &i.url)
+                            .unwrap_or(&empty_field_string)
+                    );
+                }
             }
 
             self.timeout_member_in_all_guilds(&ctx, &message.author.id)
